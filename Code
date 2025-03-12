@@ -1,0 +1,131 @@
+import os
+import warnings
+import json
+import getpass
+import psutil
+import time
+import configparser
+import pandas as pd
+from datetime import datetime, timedelta
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.edge.service import Service as EdgeService
+import requests
+import pathlib
+import tempfile
+import http
+import http.cookiejar
+from tqdm import tqdm
+from dateutil.relativedelta import relativedelta
+warnings.filterwarnings("ignore")
+
+
+def startup_driver(browser='Edge'):
+    global driver
+    if browser == 'Edge':
+        driver = webdriver.Edge(service=EdgeService())
+    driver.maximize_window()
+    global wait
+    # set wait duration here
+    wait = WebDriverWait(driver, 120, poll_frequency=1.5)
+
+
+def kill_edge_processes():
+    try:
+        for process in psutil.process_iter(['pid', 'name', 'cmdline']):
+            if 'msedge.exe' in process.info['name'].lower():
+                process.terminate()
+    except Exception as e:
+        print(f"Error terminating processes: {e}")
+
+def GetCookie():
+
+    url = 'website'
+
+    driver.get(url)
+
+    cookies = None
+
+    while not cookies:
+        try:
+            website_cookies = driver.get_cookies()
+
+            host_cookie = next(
+                attribute['value'] for attribute in website_cookies if attribute['name'] == "__Host")
+
+            cookies = f'__Host-={host_cookie};'
+        except:
+            time.sleep(1)
+
+    driver.quit()
+
+    return cookies
+
+def GetDate():
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    six_months_ago = today - relativedelta(months=6)
+    # get in unix
+    today_ms = int(time.mktime(today.timetuple()) * 1000)
+    six_months_ago_ms = int(time.mktime(six_months_ago.timetuple()) * 1000)
+    return six_months_ago_ms, today_ms
+
+def GetValues(file_path='Input.xlsx'):
+    df = pd.read_excel(file_path)
+    if 'value' not in df.columns:
+        raise ValueError("Column 'value' not found in Input.xlsx")
+
+    df = df.dropna(subset=['value'])
+    df['value'] = df['value'].astype(str).str.strip()
+    values = df['value'].drop_duplicates().tolist()
+    return values
+
+def auto():
+    # Get the cookie
+    kill_edge_processes()
+    startup_driver('Edge')
+    cookie = GetCookie()
+    headers = {'Content-type': 'application/json',
+               'Cookie': cookie}
+    # Get the date
+    start_date, end_date = GetDate()
+    # Get the Values from the excel
+    values = GetValues()
+
+    # Create a folder for the results
+    results_folder = 'VALUES_Results'
+    if not os.path.exists(results_folder):
+        os.makedirs(results_folder)
+
+    for index, value in tqdm(enumerate(values, 1), total=len(values), desc="Processsing Values"):
+        url = 'website'
+        jsonSearch = {"XCodes": None, "containedValue": value, "DateStart": start_date, "DateEnd": end_date}
+        session = "authentication_function()"
+        res = session.post(url, headers=headers, json=jsonSearch, verify=False)
+
+        jsonDB = {'A': [], 'X': [], 'D': [],
+                  'V': [], 'Y': [], 'H': [], 'Z': []}
+
+        for value in res.json()['buyingPortalPoHeader']:
+
+            
+            jsonDB['A'].append(value['a'])
+            jsonDB['X'].append(value['x'])
+            jsonDB['D'].append(value['d'])
+            jsonDB['V'].append(value['v'])
+            jsonDB['Y'].append(value['y'])
+            jsonDB['H'].append(value['h'])
+            jsonDB['Z'].append(value['z'])
+
+        time.sleep(1)   
+
+        df_individual = pd.DataFrame(jsonDB)
+        df_individual['Order Date'] = pd.to_datetime(df_individual['Order Date'], unit='ms')
+        df_individual['Order Date'] = df_individual['Order Date'].dt.strftime('%m-%d-%Y %H:%M')
+
+        file_name = f"{value}_Results.xlsx"
+        file_path = os.path.join(results_folder, file_name)
+        df_individual.to_excel(file_path, index=False)
+
+auto()
