@@ -107,7 +107,7 @@ def auto():
         jsonDB = {'A': [], 'X': [], 'D': [],
                   'V': [], 'Y': [], 'H': [], 'Z': []}
 
-        for value in res.json()['buyingPortalPoHeader']:
+        for value in res.json()['Header']:
 
             
             jsonDB['A'].append(value['a'])
